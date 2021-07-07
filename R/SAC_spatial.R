@@ -1,183 +1,180 @@
-#####################################################################
-# Functions for non-spatial and spatial species accumulation curves
-#               SAC             sSAC
-#
-# All functions work on point-mapped data, not on plot based surveys!
-#
-# Felix May
-#
-#####################################################################
-
-# -----------------------------------------------------------
-# Function for the non-spatial SAC after Coleman 1982 Ecology
-#' Expected species richness in a random sample of fixed size
+#' Sample species richness
 #'
-#' @param n Integer of length 1 - sample size
-#' @param abund.vec Integer vector - species abundance distribution of the community
+#' Expected species richness in a random sample of fixed size.
 #'
-#' @return Expected number of species in n individuals
+#' @param abund_vec Species abundance distribution of the community (integer vector)
+#' @param n Sample size in terms of number of individuals (integer)
 #'
-S.single.scale <- function(n, abund.vec)
+#' @return Expected number of species in a sample of n individuals
+#'
+#' @details The expected number of species is calculated after Hurlbert 1971, Equation 3.
+#'
+#' \code{spec_sample} is similar to the function \code{\link[vegan]{rarefy}}
+#' in the R package \code{\link{vegan}}.
+#'
+#' @references
+#' Hurlbert, S.H. 1971. The nonconcept of species diversity: a critique and +
+#' alternative parameters. Ecology 52, 577-586.
+#'
+#' @examples
+#' sad1 <- sim_sad(100, 1000)
+#' spec_sample(abund_vec = sad1, n = 20)
+#'
+#' @export
+#'
+spec_sample <- function(abund_vec, n)
 {
-  S <- length(abund.vec)
-  N <- sum(abund.vec)
-  S.n <- S - sum((1-n/N)^abund.vec)
-  return(S.n)
+   abund_vec <- abund_vec[abund_vec > 0]
+   n_total <- sum(abund_vec)
+   ldiv <- lchoose(n_total, n)
+   p1 <- exp(lchoose(n_total - abund_vec, n) - ldiv)
+   out <- sum(1 - p1)
+   names(out) <- n
+
+   return(out)
 }
 
-
-#' Non-spatial species accumulation curve (SAC) after Coleman
+#' Species rarefaction curve
 #'
-#' @param abund.vec Integer vector with species abundance distribution
+#' Expected species richness as a function of sample size
 #'
-#' @return Numeric Vector with expected species numbers in samples of 1, 2, 3 ... N individuals
+#' @param abund_vec Species abundance distribution of the community (integer vector)
 #'
-#' @references Coleman, B. D. et al. 1983. Randomness, area, and species richness. Ecology 63, 1121-1133
+#' @return Numeric Vector with expected species richness in samples of 1, 2, 3 ... n individuals
 #'
-SAC.coleman <- function(abund.vec)
+#' @details This function essentially evaluates \code{\link{spec_sample}} for
+#' sample sizes from 1 to \code{sum(abund_vec)}. It is similar to the function
+#' \code{\link[vegan]{rarecurve}} in the R package \code{\link{vegan}}.
+#'
+#' @references
+#'
+#' Gotelli & Colwell 2001. Quantifying biodiversity: procedures and pitfalls
+#' in the measurement and comparison of species richness. Ecology Letters 4, 379--391.
+#'
+#' @examples
+#' sad1 <- sim_sad(100, 2000, sad_type = "lnorm", sad_coef = list("meanlog" = 2,
+#'                                                                 "sdlog" = 1))
+#' rc1 <- rare_curve(sad1)
+#' plot(rc1, type = "l", xlab = "Sample size", ylab = "Expected species richness")
+#'
+#' @export
+#'
+rare_curve <- function(abund_vec)
 {
-  N <- sum(abund.vec)
-  n.vec <- 1:N
-  sac <- sapply(n.vec, S.single.scale, abund.vec = abund.vec)
-  return(sac)
+   abund_vec <- abund_vec[abund_vec > 0]
+   n_total <- sum(abund_vec)
+   n_vec <- 1:n_total
+
+   rc <- sapply(n_vec, function(n_sample){spec_sample(abund_vec, n = n_sample)})
+   names(rc) <- n_vec
+   return(rc)
 }
 
-# -----------------------------------------------------------
-# Function for the spatial SAC written by Xiao Xiao, Dan McGlinn and Nick Gotelli
-# This function computes the sSAC from one random individual in the community
-
-near_neigh_ind = function(data){
-  # The input data has three columns: x, y, and species ID for each individual.
-  data = data[sample(1:dim(data)[1]), ]
-  focal_row = sample(dim(data)[1], 1)
-  # Compute Euclidean distances
-  x_diff = data[, 1] - as.numeric(data[focal_row, 1])
-  y_diff = data[, 2] - as.numeric(data[focal_row, 2])
-  dist_row = sqrt(x_diff^2 + y_diff^2)
-  data_order = data[order(dist_row), ]
-  S = c()
-  #vec_list = lapply(1:dim(data_order)[1], seq)
-  #lapply(vec_list, length(unique(data_order[vec_list, 3])))
-  for (i in 1:dim(data_order)[1]){
-    sp_id_list = data_order[1:i, 3]
-    i_rich = length(unique(sp_id_list))
-    S = c(S, i_rich)
-  }
-  N = 1:dim(data_order)[1]
-  return(list(S = S, N = N))
-}
-
-# -----------------------------------------------------------
-# Average sSAC starting from n (=nsamples) random individuals in the local community
-sSAC.avg <- function(data, nsamples=20)
+#' Non-spatial and spatially-explicit species sampling curves
+#'
+#' Expected species richness as function of sample size (no. of individuals),
+#' when individuals are sampled randomly (rarefaction) or when nearest-neighbours
+#' are samples (accumulation).
+#'
+#' @param comm Community object
+#'
+#' @param method Partial match to \code{accumulation} or \code{rarefaction}. Also both
+#' methods can be included at the same time.
+#'
+#' @details
+#' Non-spatial sampling corresponds to the species rarefaction curve, which only
+#' depends on the species abundance distribution and can thus be also calculated
+#' from abundance data (see \code{\link{rare_curve}}).
+#'
+#' In contrast the species-accumulation curve starts from a focal individual and
+#' only samples the nearest neighbours of the focal individual. The final
+#' species accumulation curves is calculated as the mean over the accumulation
+#' curves starting from all individuals.
+#'
+#' In contrast to the rarefaction curve the accumulation curve is not only
+#' influenced by the species abundance distribution, but also by the spatial
+#' distribution of individuals.
+#'
+#' @return A dataframe with 2-3 columns. The first column indicates the sample
+#' size (numbers of individuals), and the second and third column indicate
+#' the expected species richness for spatial sampling (column: "spec_accum")
+#' and/or random sampling (column "spec_rarefied")
+#'
+#' @examples
+#' sim_com1 <- sim_thomas_community(s_pool = 100, n_sim = 1000)
+#' sac1 <- spec_sample_curve(sim_com1, method = c("rare","acc"))
+#'
+#' head(sac1)
+#' plot(sac1)
+#'
+#' @export
+#'
+spec_sample_curve <- function(comm, method = c("accumulation" ,"rarefaction"))
 {
-  N <- nrow(data)
+   if (class(comm) != "community")
+      stop("spec_sample_curve requires a community object as input. See ?community.")
 
-  sac.mat <- matrix(NA,nrow=nsamples,ncol=N)
-  for (i in 1:nsamples)
-    sac.mat[i,] <- near_neigh_ind(data)$S
-  return(colMeans(sac.mat))
+   out_dat <- data.frame(n = 1:nrow(comm$census))
+
+   method <- match.arg(method, several.ok = TRUE)
+
+   if ("accumulation" %in% method){
+      out_dat$spec_accum <- sSAC1_C(comm$census$x, comm$census$y,
+                                    as.integer(comm$census$species))
+   }
+
+   if ("rarefaction" %in% method){
+      abund <- community_to_sad(comm)
+      out_dat$spec_rarefied <- rare_curve(abund)
+
+   }
+
+   class(out_dat) <- c("spec_sample_curve", "data.frame")
+
+   return(out_dat)
 }
 
-# -----------------------------------------------------------
-#
-#' Spatially-explicit species accumulation curve (sSAC)
+
+#' Plot species sampling curves
 #'
-#' The sSAC is calculated starting from all individuals in the local community
-#' and then averaged over all focal individuals
+#' @param x Species sampling curve generated by \code{\link{spec_sample_curve}}
 #'
-#' @param data Data.frame or matrix with three columns.
-#'             The first two columns need to include the x,y coordinates
-#'             of individuals and the third column the species identity label.
+#' @param ... Additional graphical parameters used in \code{\link[graphics]{plot}}.
+
 #'
-#' @return integer vector with expected species number when n neighbouring individuals
-#'          are sampled
+#' @examples
+#' sim_com1 <- sim_thomas_community(s_pool = 100, n_sim = 1000)
+#' sac1 <- spec_sample_curve(sim_com1, method = c("rare","acc"))
+#' plot(sac1)
 #'
+#' @export
 #'
-sSAC.all.rcpp <- function(data)
+plot.spec_sample_curve <- function(x, ...)
 {
-   sSAC <- sSAC1_C(data[,1], data[,2], as.integer(data[,3]))
-   return(sSAC)
+   graphics::plot(x[[1]], x[[2]], type = "n",
+                  xlab = "No. of individuals sampled",
+                  ylab = "Expected no.of species",
+                  main = "Species sampling curves", ...)
+
+   if (ncol(x) == 2){
+      if (names(x)[2] == "spec_accum"){
+         legend_text <- c("Accumulation")
+         line_col <- "red"
+      }
+      if (names(x)[2] == "spec_rarefied"){
+         legend_text <- c("Rarefaction")
+         line_col <- "blue"
+      }
+      graphics::lines(x[[1]], x[[2]], col = line_col)
+   }
+
+   if (ncol(x) == 3){
+      legend_text <- c("Accumulation","Rarefaction")
+      line_col <- c("red","blue")
+      graphics::lines(x[[1]], x[[2]], col = line_col[1])
+      graphics::lines(x[[1]], x[[3]], col = line_col[2])
+   }
+
+   graphics::legend("bottomright", legend = legend_text, lty = 1, col = line_col)
 }
-
-
-# # -----------------------------------------------------------
-# # calculates PIE in sub-samples of a community
-# PIE.sample <- function(abund.count, sample.size, nsample)
-# {
-#    require(vegan)
-#    pie <- numeric(nsample)
-#    spec.id <- 1:length(abund.count)
-#    rel.abund <- abund.count/sum(abund.count)
-#    for (i in 1:nsample){
-#       abund.sample <- table(sample(spec.id,size=sample.size,replace=T,prob=rel.abund))
-#       pie[i] <- diversity(abund.sample,index="simpson")
-#    }
-#    return(mean(pie))
-# }
-#
-# # -----------------------------------------------------------
-# # calculates PIE of a species ID vector in a point pattern
-# PIE.ppp <- function(pp1)
-# {
-#    require(vegan)
-#    abund <- table(marks(pp1))
-#    return(diversity(abund,index="simpson"))
-# }
-#
-# # -----------------------------------------------------------
-# # calculates spatially-explicit PIE in non-noverlapping squares
-# PIE.spatial <- function(community, square.size = 0.1)
-# {
-#    require(vegan)
-#    require(spatstat)
-#
-#    x <- community[,1]
-#    y <- community[,2]
-#
-#    xmin <- floor(min(x)); xmax <- ceiling(max(x))
-#    ymin <- floor(min(y)); ymax <- ceiling(max(y))
-#
-#    pp1 <- ppp(x, y, marks=community[,3], window=owin(c(xmin,xmax),c(ymin,ymax)))
-#    grid1 <- tess(xgrid=seq(xmin,xmax,by=(xmax-xmin)*square.size),
-#                  ygrid=seq(ymin,ymax,by=(ymax-ymin)*square.size))
-#    pp.grid <- split(pp1,grid1)
-#
-#    pie.local <- sapply(pp.grid,PIE.ppp)
-#
-#    return(mean(pie.local))
-# }
-#
-# # -----------------------------------------------------------
-# # calculates number of species and PIE in subsquares of a plot
-# diversity.square <- function(community, square.size=0.1)
-# {
-#    require(vegan)
-#    require(spatstat)
-#
-#    x <- community[,1]
-#    y <- community[,2]
-#
-#    xmin <- floor(min(x)); xmax <- ceiling(max(x))
-#    ymin <- floor(min(y)); ymax <- ceiling(max(y))
-#
-#    pp1 <- ppp(x,y,marks=community[,3],window=owin(c(xmin,xmax),c(ymin,ymax)))
-#    grid1 <- tess(xgrid=seq(xmin, xmax, by=(xmax-xmin)*square.size),
-#                  ygrid=seq(ymin, ymax, by=(ymax-ymin)*square.size))
-#    pp.grid <- split(pp1,grid1)
-#
-#    abund.local <- lapply(pp.grid,function(pp){table(marks(pp))})
-#
-#    pie.local <- sapply(abund.local,diversity,index="simpson")
-#    sr.local <- sapply(abund.local,specnumber)
-#
-#    return(c(PIE=mean(pie.local),SR.local=mean(sr.local)))
-# }
-
-
-
-
-
-
-
 
